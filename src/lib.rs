@@ -25,6 +25,17 @@ macro_rules! generate_type_conversion_fn {
                 });
                 concat_idents::concat_idents!(into_b = as_, $ident {
                     impl $a_base_ident {
+                        /// Converts one kind of data size type into another
+                        /// # Example
+                        /// ```
+                        /// use anysize::*;
+                        /// let words = WordsU32::new(10);
+                        /// let bytes = words.as_bytes();
+                        /// assert_eq!(bytes.get(), 40);
+                        /// let bits = bytes.as_bits();
+                        /// assert_eq!(bits.get(), 320);
+                        /// assert_eq!(words.as_bits().get(), bits.get());
+                        /// ```
                         #[must_use]
                         $vis const fn into_b(self) -> $b_base_ident {
                             if $a_base_ident::BITS.gt($b_base_ident::BITS) {
@@ -64,6 +75,17 @@ macro_rules! generate_size_conversion_fn {
             });
             concat_idents::concat_idents!(into_b = as_, $b_ty {
                 impl $a_name {
+                    /// Converts the size of an object
+                    /// # Panics:
+                    /// Will panic if value won't fit in new type
+                    /// # Example:
+                    /// ```
+                    /// use anysize::*;
+                    /// let bits = BitsU8::new(10);
+                    /// let bits = bits.as_u32(); // Can't panic, because size_of::<u8>() < size_of::<u32>()
+                    /// let bits = bits + BitsU32::new(100000);
+                    /// // bits.as_u8(); Will panic here
+                    /// ```
                     #[must_use]
                     #[inline(always)]
                     $vis const fn into_b(self) -> $b_name {
@@ -82,6 +104,17 @@ macro_rules! generate_size_conversion_fn {
             });
             concat_idents::concat_idents!(into_a = as_, $a_ty {
                 impl $b_name {
+                    /// Converts the size of an object
+                    /// # Panics:
+                    /// Will panic if value won't fit in new type
+                    /// # Example:
+                    /// ```
+                    /// use anysize::*;
+                    /// let bits = BitsU8::new(10);
+                    /// let bits = bits.as_u32(); // Can't panic, because size_of::<u8>() < size_of::<u32>()
+                    /// let bits = bits + BitsU32::new(100000);
+                    /// // bits.as_u8(); Would panic here
+                    /// ```
                     #[must_use]
                     #[inline(always)]
                     $vis const fn into_a(self) -> $a_name {
@@ -111,6 +144,54 @@ macro_rules! generate_base {
             #[cfg(feature = $feature)]
             #[cfg_attr(not(feature = $feature), allow(rust_analyzer::inactive_code))]
             concat_idents::concat_idents!(struct_ident = $base_ident $(, $var_ident)? {
+                /// Zero cost abstraction to add differenciate data size types.
+                /// # Examples
+                /// ```
+                /// use anysize::*;
+                /// let bits = BitsU8::new(10);
+                /// assert_eq!(bits.get(), 10u8);
+                ///
+                /// let bytes = BytesU8::new(2);
+                /// assert_eq!(bytes.get(), 2u8);
+                ///
+                /// let words = WordsU8::of::<u128>();
+                /// assert_eq!(words.get(), 4);
+                ///
+                /// // Sizes are equal to the suffix
+                /// assert_eq!(size_of::<BytesU8>(), size_of::<u8>());
+                /// assert_eq!(size_of::<BitsU32>(), size_of::<u32>());
+                /// assert_eq!(size_of::<WordsUSize>(), size_of::<usize>());
+                ///
+                /// // Types are universally interchangeable
+                /// let bits = BitsU8::new(16);
+                /// assert_eq!(bits.get(), 16);
+                /// let bytes = bits.as_bytes();
+                /// assert_eq!(bytes.get(), 2);
+                /// // A.as_B asks the question: "How many B do I need to fit A"
+                /// // So you need for example 2 bytes for 12 bits
+                /// let words = bytes.as_words();
+                /// assert_eq!(words.get(), 1);
+                /// let words_to_bits = words.as_bits();
+                /// assert_eq!(words_to_bits.get(), 32);
+                /// assert_ne!(bits, words_to_bits);
+                ///
+                /// // Sizes also
+                /// let bits = BitsU8::new(200);
+                /// assert_eq!(bits.get(), 200);
+                /// // bits + BitsU8::new(100) would panic, because 200 + 100 > u8::MAX
+                /// let mut bits = bits.as_u32();
+                /// assert_eq!(bits.get(), 200);
+                /// bits += BitsU32::new(100);
+                /// assert_eq!(bits.get(), 300);
+                ///
+                /// // Get
+                /// assert_eq!(WordsU8::BITS, BitsU8::new(32));
+                /// let bytes = BytesUSize::of::<u32>();
+                /// assert_eq!(bytes.get(), size_of::<u32>());
+                ///
+                /// // Math
+                /// assert_eq!(BytesU8::new(2) + BytesU8::new(6), BytesU8::new(8));
+                /// ```
                 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash)]
                 $vis struct struct_ident {
                    pub(self) inner: $var_ty
@@ -130,6 +211,14 @@ macro_rules! generate_base {
 
                 impl struct_ident {
                     concat_idents::concat_idents!(bits_ident = Bits $(, $var_ident)? {
+                        /// Amount of bits, describing the size of this type
+                        /// # Examples
+                        /// ```
+                        /// use anysize::*;
+                        /// assert_eq!(BitsU8::BITS.get(), 1);
+                        /// assert_eq!(BytesU32::BITS.get(), 8);
+                        /// assert_eq!(WordsU32::BITS.get(), 32);
+                        /// ```
                         $vis const BITS: bits_ident = bits_ident::new($bit_size);
                     });
 
@@ -137,16 +226,38 @@ macro_rules! generate_base {
                     $vis const ONE: Self = Self::new(1);
                     $vis const MAX: Self = Self::new($var_ty::MAX);
 
+                    /// Will create a new instance of the given type
+                    /// # Examples
+                    /// ```
+                    /// use anysize::*;
+                    /// let bytes = BytesU32::new(10);
+                    /// assert_eq!(bytes.get(), 10);
+                    /// ```
                     #[must_use]
                     #[inline(always)]
                     $vis const fn new($words: $var_ty) -> Self {
                         Self { inner: $words }
                     }
+                    /// Gets the value as integer
+                    /// # Examples
+                    /// ```
+                    /// use anysize::*;
+                    /// let bytes = BytesU32::new(10);
+                    /// assert_eq!(bytes.get(), 10);
+                    /// ```
                     #[must_use]
                     #[inline(always)]
                     $vis const fn get(self) -> $var_ty {
                         self.inner
                     }
+                    /// Creates new instance, depending on the size of a type
+                    /// # Examples
+                    /// ```
+                    /// use anysize::*;
+                    /// assert_eq!(BitsU32::of::<u128>().get(), 128);
+                    /// assert_eq!(WordsU8::of::<u64>().get(), 2);
+                    /// assert_eq!(BytesUSize::of::<isize>().get(), size_of::<isize>());
+                    /// ```
                     #[must_use]
                     $vis const fn of<T>() -> Self {
                         let size = if $bit_size < 8 {
@@ -159,74 +270,88 @@ macro_rules! generate_base {
                         assert!(size <= $var_ty::MAX as usize);
                         Self::new(size as $var_ty)
                     }
+                    /// Returns the next power of two
                     #[must_use]
                     #[inline(always)]
                     $vis const fn next_power_of_two(self) -> Self {
                         Self::new(self.get().next_power_of_two())
                     }
+                    /// Returns if the value is a power of two
                     #[must_use]
                     #[inline(always)]
                     $vis const fn is_power_of_two(self) -> bool {
                         self.get().is_power_of_two()
                     }
 
+                    /// Const addition
                     #[must_use]
                     #[inline(always)]
                     $vis const fn add(self, other: Self) -> Self {
                         Self::new(self.inner + other.inner)
                     }
+                    /// Const subtraction
                     #[must_use]
                     #[inline(always)]
                     $vis const fn sub(self, other: Self) -> Self {
                         Self::new(self.inner - other.inner)
                     }
+                    /// Const multiplication with integer
                     #[must_use]
                     #[inline(always)]
                     $vis const fn mul(self, other: $var_ty) -> Self {
                         Self::new(self.inner * other)
                     }
+                    /// Const division with integer
                     #[must_use]
                     #[inline(always)]
                     $vis const fn div(self, other: $var_ty) -> Self {
                         Self::new(self.inner / other)
                     }
+                    /// Const ceil rounding devision with integer
                     #[must_use]
                     #[inline(always)]
                     $vis const fn div_ceil(self, other: $var_ty) -> Self {
                         Self::new(self.inner.div_ceil(other))
                     }
 
+                    /// Const eq
                     #[must_use]
                     #[inline(always)]
                     $vis const fn eq(self, other: Self) -> bool {
                         self.inner == other.inner
                     }
+                    /// Const ne
                     #[must_use]
                     #[inline(always)]
                     $vis const fn ne(self, other: Self) -> bool {
                         self.inner != other.inner
                     }
+                    /// Const gt
                     #[must_use]
                     #[inline(always)]
                     $vis const fn gt(self, other: Self) -> bool {
                         self.inner > other.inner
                     }
+                    /// Const ge
                     #[must_use]
                     #[inline(always)]
                     $vis const fn ge(self, other: Self) -> bool {
                         self.inner >= other.inner
                     }
+                    /// Const lt
                     #[must_use]
                     #[inline(always)]
                     $vis const fn lt(self, other: Self) -> bool {
                         self.inner < other.inner
                     }
+                    /// Const le
                     #[must_use]
                     #[inline(always)]
                     $vis const fn le(self, other: Self) -> bool {
                         self.inner <= other.inner
                     }
 
+                    /// Const min
                     #[must_use]
                     #[inline(always)]
                     $vis const fn min(self, other: Self) -> Self {
@@ -236,6 +361,7 @@ macro_rules! generate_base {
                             other
                         }
                     }
+                    /// Const max
                     #[must_use]
                     #[inline(always)]
                     $vis const fn max(self, other: Self) -> Self {
@@ -245,6 +371,7 @@ macro_rules! generate_base {
                             other
                         }
                     }
+                    /// Const clamp
                     #[must_use]
                     #[inline(always)]
                     $vis const fn clamp(self, min: Self, max: Self) -> Self {
