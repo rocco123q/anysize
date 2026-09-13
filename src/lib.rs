@@ -1,4 +1,10 @@
-use std::ops::{Add, AddAssign, Sub, SubAssign};
+use std::{
+    fmt::{self, Formatter, Write},
+    ops::{Add, AddAssign, Sub, SubAssign},
+    usize,
+};
+
+const UNITS: &[u8] = &[b'K', b'M', b'G', b'T', b'P'];
 
 /// For generating conversion functions between data types
 macro_rules! generate_type_conversion_fn {
@@ -22,9 +28,9 @@ macro_rules! generate_type_conversion_fn {
                         #[must_use]
                         $vis const fn into_b(self) -> $b_base_ident {
                             if $a_base_ident::BITS.gt($b_base_ident::BITS) {
-                                $b_base_ident::new(self.get().div_ceil($a_base_ident::BITS.get() / $b_base_ident::BITS.get()))
+                                $b_base_ident::new(self.mul($a_base_ident::BITS.get() / $b_base_ident::BITS.get()).get())
                             } else {
-                                $b_base_ident::new(self.get().div_ceil($b_base_ident::BITS.get() / $a_base_ident::BITS.get()))
+                                $b_base_ident::new(self.div_ceil($b_base_ident::BITS.get() / $a_base_ident::BITS.get()).get())
                             }
                         }
                     }
@@ -105,7 +111,7 @@ macro_rules! generate_base {
             #[cfg(feature = $feature)]
             #[cfg_attr(not(feature = $feature), allow(rust_analyzer::inactive_code))]
             concat_idents::concat_idents!(struct_ident = $base_ident $(, $var_ident)? {
-                //#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+                #[derive(PartialEq, Eq, PartialOrd, Ord, Hash)]
                 $vis struct struct_ident {
                    pub(self) inner: $var_ty
                 }
@@ -116,6 +122,11 @@ macro_rules! generate_base {
                     }
                 }
                 impl Copy for struct_ident {}
+                impl Default for struct_ident {
+                    fn default() -> Self {
+                        Self::ZERO
+                    }
+                }
 
                 impl struct_ident {
                     concat_idents::concat_idents!(bits_ident = Bits $(, $var_ident)? {
@@ -139,7 +150,7 @@ macro_rules! generate_base {
                     #[must_use]
                     $vis const fn of<T>() -> Self {
                         let size = if $bit_size < 8 {
-                            size_of::<T>() * $bit_size
+                            size_of::<T>() * (8 / $bit_size)
                         } else if $bit_size == 8 {
                             size_of::<T>()
                         } else {
@@ -276,6 +287,103 @@ macro_rules! generate_base {
                         *self = self.sub(rhs);
                     }
                 }
+                impl Into<$var_ty> for struct_ident {
+                    #[inline(always)]
+                    fn into(self) -> $var_ty {
+                        self.get()
+                    }
+                }
+                impl From<$var_ty> for struct_ident {
+                    #[inline(always)]
+                    fn from(value:$var_ty) -> struct_ident {
+                        Self::new(value)
+                    }
+                }
+
+                impl fmt::Binary for struct_ident {
+                    #[inline(always)]
+                    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+                        fmt::Binary::fmt(&self.inner, f)
+                    }
+                }
+                impl fmt::UpperHex for struct_ident {
+                    #[inline(always)]
+                    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+                        fmt::Binary::fmt(&self.inner, f)
+                    }
+                }
+                impl fmt::LowerHex for struct_ident {
+                    #[inline(always)]
+                    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+                        fmt::LowerHex::fmt(&self.inner, f)
+                    }
+                }
+                impl fmt::Octal for struct_ident {
+                    #[inline(always)]
+                    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+                        fmt::Octal::fmt(&self.inner, f)
+                    }
+                }
+                impl fmt::UpperExp for struct_ident {
+                    #[inline(always)]
+                    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+                        fmt::UpperExp::fmt(&self.inner, f)
+                    }
+                }
+                impl fmt::LowerExp for struct_ident {
+                    #[inline(always)]
+                    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+                        fmt::LowerExp::fmt(&self.inner, f)
+                    }
+                }
+                impl fmt::Display for struct_ident {
+                    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+                        let mut integer = self.get();
+                        let mut fraction = 0;
+                        let mut unit: u8 = u8::MAX;
+                        const ONE_K: $var_ty = 1024u16 as $var_ty;
+                        if ONE_K > 0 {
+                            while integer >= 1024u16 as $var_ty {
+                                fraction *= 1024u16 as $var_ty;
+                                fraction += integer % 1024u16 as $var_ty;
+                                integer /= 1024u16 as $var_ty;
+                                unit = unit.wrapping_add(1);
+                            }
+                        }
+
+                        write!(f, "{integer}")?;
+
+                        if unit != 255 {
+                            let max_decimals = (unit as usize + 1) * 4;
+                            let required_decimals = f.precision().unwrap_or(3);
+                            if max_decimals > required_decimals {
+                                for _ in 0..max_decimals - required_decimals {
+                                    fraction /= 10;
+                                    if fraction == 0 {
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if fraction > 0 {
+                                write!(f, ".{fraction:0max_decimals$}")?;
+                            }
+                        }
+
+                        f.write_char(' ')?;
+                        if unit < UNITS.len().min(u8::MAX as usize) as u8 {
+                            f.write_char(UNITS[unit as usize] as char)?;
+                        }
+                        f.write_str(stringify!(bits))
+                    }
+                }
+                impl fmt::Debug for struct_ident {
+                    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+                        fmt::Display::fmt(&self.inner, f)?;
+                        f.write_char(' ')?;
+                        f.write_str(stringify!(bits))
+                    }
+                }
             });
         )+
     };
@@ -393,3 +501,12 @@ generate!(pub qwords = 128 as QWords, impl Into<
     #[feature("words")] Words as words,
     #[feature("dwords")] DWords as dwords,
 >);
+
+#[cfg(all(feature = "u32", feature = "bits", feature = "bytes"))]
+#[test]
+fn test() {
+    let a = BitsU32::new(1025);
+    let b = BytesU32::of::<u128>();
+    // assert_eq!(a, b.as_bits());
+    println!("{:.4}", a);
+}
