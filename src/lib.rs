@@ -628,12 +628,3 @@ generate!(pub qwords = 128 as QWords, impl Into<
     #[feature("words")] Words as words,
     #[feature("dwords")] DWords as dwords,
 >);
-
-#[cfg(all(feature = "u32", feature = "bits", feature = "bytes"))]
-#[test]
-fn test() {
-    let a = BitsU32::new(1025);
-    let b = BytesU32::of::<u128>();
-    // assert_eq!(a, b.as_bits());
-    println!("{:.4}", a);
-}
