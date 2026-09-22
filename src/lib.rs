@@ -478,13 +478,19 @@ macro_rules! generate_base {
                             }
                         }
 
+                        if f.sign_minus() {
+                            write!(f, "-")?;
+                        } else if f.sign_plus() {
+                           write!(f, "+")?;
+                        }
                         write!(f, "{integer}")?;
 
                         if unit != 255 {
-                            let max_decimals = (unit as usize + 1) * 4;
-                            let required_decimals = f.precision().unwrap_or(3);
-                            if max_decimals > required_decimals {
-                                for _ in 0..max_decimals - required_decimals {
+                            let max_possible_decimals = (unit as usize + 1) * 4;
+                            let required_decimals = f.precision().unwrap_or(2);
+                            let decimals = max_possible_decimals.min(required_decimals);
+                            if let Some(decimals_to_shave) = max_possible_decimals.checked_sub(required_decimals) {
+                                for _ in 0..decimals_to_shave {
                                     fraction /= 10;
                                     if fraction == 0 {
                                         break;
@@ -493,7 +499,7 @@ macro_rules! generate_base {
                             }
 
                             if fraction > 0 {
-                                write!(f, ".{fraction:0max_decimals$}")?;
+                                write!(f, ".{fraction:0decimals$}")?;
                             }
                         }
 
@@ -501,14 +507,22 @@ macro_rules! generate_base {
                         if unit < UNITS.len().min(u8::MAX as usize) as u8 {
                             f.write_char(UNITS[unit as usize] as char)?;
                         }
-                        f.write_str(stringify!(bits))
+                        f.write_str(if integer == 1 && fraction == 0 {
+                            &stringify!($words)[0..(stringify!($words).len() - 1)]
+                        } else {
+                            stringify!($words)
+                        })
                     }
                 }
                 impl fmt::Debug for struct_ident {
                     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
                         fmt::Display::fmt(&self.inner, f)?;
                         f.write_char(' ')?;
-                        f.write_str(stringify!(bits))
+                        f.write_str(if self.inner == 1 {
+                            &stringify!($words)[0..(stringify!($words).len() - 1)]
+                        } else {
+                            stringify!($words)
+                        })
                     }
                 }
             });
